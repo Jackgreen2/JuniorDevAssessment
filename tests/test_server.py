@@ -1,67 +1,103 @@
+"""Check server behaviour without making paid Anthropic calls."""
 import os
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
-from types import SimpleNamespace
 
 import server
 
 
 class DraftTests(unittest.TestCase):
-    # Create a Flask test client before each test.
+    # Create a fresh Flask client with a fake API key for each test.
     def setUp(self):
         self.client = server.app.test_client()
+        environment = patch.dict(os.environ, {'ANTHROPIC_API_KEY': 'test-key'})
+        environment.start()
+        self.addCleanup(environment.stop)
 
-    # Check both policy outcomes and confirm order data remains unchanged.
-    @patch.dict(os.environ, {'ANTHROPIC_API_KEY': 'test-key'})
-    @patch('server.draft_reply', return_value='A draft. No cancellation has been made.')
-    def test_policy_and_read_only_data(self, llm):
-        original = server.ORDERS_PATH.read_bytes()
-        for order_id, allowed in [('ORD-101', True), ('ORD-102', False)]:
-            response = self.client.post('/draft', json={'message': f'Cancel {order_id.lower()}'})
-            self.assertEqual(response.status_code, 200)
-            order, decision = llm.call_args.args
-            self.assertEqual(order['order_id'], order_id)
-            self.assertIn('is allowed' if allowed else 'is not allowed', decision)
-        self.assertEqual(original, server.ORDERS_PATH.read_bytes())
+    # Check processing and shipped orders use the correct policy without changing data.
+    @patch('server.draft_reply', return_value='No cancellation has been made.')
+    def test_policy_and_read_only_data(self, mock_draft_reply):
+        original_data = server.ORDERS_PATH.read_bytes()
+        cases = [
+            ('ORD-101', 'Cancellation is allowed'),
+            ('ORD-102', 'Cancellation is not allowed'),
+        ]
 
-    # Check missing and unknown IDs receive replies without calling the model.
+        for order_id, expected_decision in cases:
+            with self.subTest(order_id=order_id):
+                response = self.client.post(
+                    '/draft', json={'message': f'Cancel {order_id.lower()}'},
+                )
+
+                self.assertEqual(response.status_code, 200)
+                order, decision = mock_draft_reply.call_args.args
+                self.assertEqual(order['order_id'], order_id)
+                self.assertIn(expected_decision, decision)
+                self.assertEqual(response.json['draft'], 'No cancellation has been made.')
+
+        self.assertEqual(server.ORDERS_PATH.read_bytes(), original_data)
+
+    # Ask for a missing order ID without calling the model.
     @patch('server.draft_reply')
-    def test_missing_and_unknown_ids_skip_llm(self, llm):
-        for message, expected in [('Cancel my order', 'provide your order ID'),
-                                  ('Cancel ORD-9999', "couldn't find")]:
-            response = self.client.post('/draft', json={'message': message})
-            self.assertEqual(response.status_code, 200)
-            self.assertIn(expected, response.json['draft'])
-        llm.assert_not_called()
+    def test_missing_order_id(self, mock_draft_reply):
+        response = self.client.post('/draft', json={'message': 'Cancel my order'})
 
-    # Check invalid request bodies return a validation error.
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('provide your order ID', response.json['draft'])
+        mock_draft_reply.assert_not_called()
+
+    # Report an unknown order without calling the model.
+    @patch('server.draft_reply')
+    def test_unknown_order_id(self, mock_draft_reply):
+        response = self.client.post('/draft', json={'message': 'Cancel ORD-9999'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("couldn't find", response.json['draft'])
+        mock_draft_reply.assert_not_called()
+
+    # Reject missing, invalid, or blank message values.
     def test_invalid_input(self):
-        for body in [None, [], {}, {'message': 3}, {'message': '   '}]:
-            self.assertEqual(self.client.post('/draft', json=body).status_code, 400)
+        invalid_bodies = [None, [], {}, {'message': 3}, {'message': '   '}]
 
-    # Check a missing API key produces a service unavailable response.
-    @patch.dict(os.environ, {}, clear=True)
+        for body in invalid_bodies:
+            with self.subTest(body=body):
+                response = self.client.post('/draft', json=body)
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn('error', response.json)
+
+    # Return a configuration error when the API key is missing.
+    @patch.dict(os.environ, {'ANTHROPIC_API_KEY': ''})
     def test_missing_key(self):
-        self.assertEqual(self.client.post('/draft', json={'message': 'ORD-101'}).status_code, 503)
-
-    # Check a model failure returns a helpful error response.
-    @patch.dict(os.environ, {'ANTHROPIC_API_KEY': 'test-key'})
-    @patch('server.draft_reply', side_effect=ValueError('Empty response'))
-    def test_llm_failure(self, llm):
         response = self.client.post('/draft', json={'message': 'ORD-101'})
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn('error', response.json)
+
+    # Return an error when the model cannot produce a draft.
+    @patch('server.draft_reply', side_effect=ValueError('Empty response'))
+    def test_llm_failure(self, mock_draft_reply):
+        response = self.client.post('/draft', json={'message': 'ORD-101'})
+
         self.assertEqual(response.status_code, 502)
         self.assertIn('error', response.json)
 
-    # Check the model receives the policy decision and draft-only instructions.
+    # Send the policy decision and draft-only instructions to Anthropic.
     @patch('server.Anthropic')
-    def test_model_receives_decision_and_draft_only_instruction(self, sdk):
-        sdk.return_value.messages.create.return_value.content = [
+    def test_model_receives_decision_and_draft_only_instruction(self, mock_anthropic):
+        mock_client = mock_anthropic.return_value
+        mock_client.messages.create.return_value.content = [
             SimpleNamespace(type='text', text='A draft'),
         ]
-        self.assertEqual(server.draft_reply({'order_id': 'ORD-101'}, 'allowed'), 'A draft')
-        arguments = sdk.return_value.messages.create.call_args.kwargs
-        self.assertIn('no cancellation has been made', arguments['system'])
-        self.assertIn('allowed', arguments['messages'][0]['content'])
+        order = {'order_id': 'ORD-101'}
+
+        reply = server.draft_reply(order, 'allowed')
+
+        self.assertEqual(reply, 'A draft')
+        request_arguments = mock_client.messages.create.call_args.kwargs
+        self.assertIn('no cancellation has been made', request_arguments['system'])
+        self.assertIn('allowed', request_arguments['messages'][0]['content'])
 
 
 if __name__ == '__main__':
