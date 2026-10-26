@@ -3,7 +3,7 @@ import sys
 
 import requests
 
-url = 'http://128.0.0.1:5000/draft'
+url = 'http://127.0.0.1:5000/draft'
 
 # Read the customer message from arguments or an interactive prompt.
 def read_message():
