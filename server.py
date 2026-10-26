@@ -12,12 +12,14 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024
 ORDERS_PATH = Path(__file__).with_name('orders.json')
 
 
+# Find an order in the local JSON file without modifying it.
 def find_order(order_id):
     with ORDERS_PATH.open(encoding='utf-8') as file:
         orders = json.load(file)
     return next((order for order in orders if order['order_id'] == order_id), None)
 
 
+# Determine cancellation eligibility from the order status.
 def cancellation_decision(status):
     if status == 'processing':
         return 'Cancellation is allowed because the order is processing.'
@@ -26,6 +28,7 @@ def cancellation_decision(status):
     return 'Eligibility is unknown because the policy does not cover this status.'
 
 
+# Ask Anthropic to word a reply using verified facts and the policy decision.
 def draft_reply(order, decision):
     client = Anthropic(timeout=30.0, max_retries=0)
     result = client.messages.create(
@@ -52,18 +55,20 @@ def draft_reply(order, decision):
 class DraftError(Exception):
     """An expected failure that should be returned as a JSON error."""
 
+    # Store the error message and HTTP status code.
     def __init__(self, message, status_code):
         super().__init__(message)
         self.status_code = status_code
 
 
+# Return an expected failure as a JSON error response.
 @app.errorhandler(DraftError)
 def handle_draft_error(error):
     return jsonify(error=str(error)), error.status_code
 
 
+# Validate the request body and return a trimmed customer message.
 def validate_message(body):
-    """Validate the request body and return a trimmed customer message."""
     if not isinstance(body, dict) or not isinstance(body.get('message'), str):
         raise DraftError('Send a JSON object containing a message string.', 400)
     message = body['message'].strip()
@@ -72,13 +77,14 @@ def validate_message(body):
     return message
 
 
+# Extract and uppercase an order ID, or return None if missing.
 def extract_order_id(message):
     match = re.search(r'\bORD-\d+\b', message, re.IGNORECASE)
     return match.group().upper() if match else None
 
 
+# Look up an order and translate data failures into a server error.
 def load_order(order_id):
-    """Look up an order and translate data failures into a server error."""
     try:
         return find_order(order_id)
     except (OSError, ValueError, KeyError, TypeError) as error:
@@ -86,8 +92,8 @@ def load_order(order_id):
         raise DraftError('Order data is unavailable. Please try again later.', 500) from error
 
 
+# Check credentials, apply the policy, and handle model failures.
 def generate_draft(order):
-    """Apply the policy and request wording from the configured model."""
     if not os.environ.get('ANTHROPIC_API_KEY'):
         raise DraftError('The server LLM API key has not been configured.', 503)
     decision = cancellation_decision(order.get('status'))
@@ -97,6 +103,7 @@ def generate_draft(order):
         raise DraftError('Unable to generate a draft. Please try again later.', 502) from error
 
 
+# Process a cancellation enquiry and return a draft or a request for details.
 @app.post('/draft')
 def draft():
     message = validate_message(request.get_json(silent=True))

@@ -7,9 +7,11 @@ import server
 
 
 class DraftTests(unittest.TestCase):
+    # Create a Flask test client before each test.
     def setUp(self):
         self.client = server.app.test_client()
 
+    # Check both policy outcomes and confirm order data remains unchanged.
     @patch.dict(os.environ, {'ANTHROPIC_API_KEY': 'test-key'})
     @patch('server.draft_reply', return_value='A draft. No cancellation has been made.')
     def test_policy_and_read_only_data(self, llm):
@@ -22,6 +24,7 @@ class DraftTests(unittest.TestCase):
             self.assertIn('is allowed' if allowed else 'is not allowed', decision)
         self.assertEqual(original, server.ORDERS_PATH.read_bytes())
 
+    # Check missing and unknown IDs receive replies without calling the model.
     @patch('server.draft_reply')
     def test_missing_and_unknown_ids_skip_llm(self, llm):
         for message, expected in [('Cancel my order', 'provide your order ID'),
@@ -31,14 +34,17 @@ class DraftTests(unittest.TestCase):
             self.assertIn(expected, response.json['draft'])
         llm.assert_not_called()
 
+    # Check invalid request bodies return a validation error.
     def test_invalid_input(self):
         for body in [None, [], {}, {'message': 3}, {'message': '   '}]:
             self.assertEqual(self.client.post('/draft', json=body).status_code, 400)
 
+    # Check a missing API key produces a service unavailable response.
     @patch.dict(os.environ, {}, clear=True)
     def test_missing_key(self):
         self.assertEqual(self.client.post('/draft', json={'message': 'ORD-101'}).status_code, 503)
 
+    # Check a model failure returns a helpful error response.
     @patch.dict(os.environ, {'ANTHROPIC_API_KEY': 'test-key'})
     @patch('server.draft_reply', side_effect=ValueError('Empty response'))
     def test_llm_failure(self, llm):
@@ -46,6 +52,7 @@ class DraftTests(unittest.TestCase):
         self.assertEqual(response.status_code, 502)
         self.assertIn('error', response.json)
 
+    # Check the model receives the policy decision and draft-only instructions.
     @patch('server.Anthropic')
     def test_model_receives_decision_and_draft_only_instruction(self, sdk):
         sdk.return_value.messages.create.return_value.content = [
