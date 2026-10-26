@@ -3,6 +3,7 @@ import sys
 
 import requests
 
+url = 'http://128.0.0.1:5000/draft'
 
 # Read the customer message from arguments or an interactive prompt.
 def read_message():
@@ -14,7 +15,7 @@ def read_message():
 # Send the message to Flask and decode its JSON response.
 def request_draft(message):
     response = requests.post(
-        'http://127.0.0.1:5000/draft', json={'message': message}, timeout=40,
+        url, json={'message': message}, timeout=40,
     )
     return response, response.json()
 

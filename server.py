@@ -7,6 +7,9 @@ import re
 from flask import Flask, jsonify, request
 from anthropic import Anthropic, AnthropicError
 
+ip = '127.0.0.1'
+port = 5000
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024
 ORDERS_PATH = Path(__file__).with_name('orders.json')
@@ -109,7 +112,7 @@ def draft():
     message = validate_message(request.get_json(silent=True))
     order_id = extract_order_id(message)
     if order_id is None:
-        return jsonify(draft='Please provide your order ID, for example ORD-101.')
+        return jsonify(draft='Please provide your order ID in the format: ORD-101.')
 
     order = load_order(order_id)
     if order is None:
@@ -119,4 +122,4 @@ def draft():
 
 
 if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=5000, debug=False)
+    app.run(host=ip, port=port, debug=False)
