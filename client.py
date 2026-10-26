@@ -3,6 +3,7 @@ import sys
 
 import requests
 
+url = 'http://128.0.0.1:5000/draft'
 
 def read_message():
     if len(sys.argv) > 1:
@@ -12,7 +13,7 @@ def read_message():
 
 def request_draft(message):
     response = requests.post(
-        'http://127.0.0.1:5000/draft', json={'message': message}, timeout=40,
+        url, json={'message': message}, timeout=40,
     )
     return response, response.json()
 
