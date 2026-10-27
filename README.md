@@ -12,6 +12,9 @@ Message Handling:
 - Server extracts order number from the message, checks whether it exists, applies the cancellation policy. 
 - Server then requests LLM to craft a message back to the user giving feedback on the result of their request.
 
+Will build client application first as this does not contain any business logic and
+will be simpler to implement
+
 # Limitations
 
 This system does not perform any actual cancellations and only provides the user with informaion about whether their order can be
