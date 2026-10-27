@@ -96,7 +96,7 @@ def load_order(order_id):
 
 
 # Check credentials, apply the policy, and handle model failures.
-def generate_draft(order):
+def generate_reply(order):
     if not os.environ.get('ANTHROPIC_API_KEY'):
         raise DraftError('The server LLM API key has not been configured.', 503)
     decision = cancellation_decision(order.get('status'))
@@ -118,7 +118,7 @@ def draft():
     if order is None:
         return jsonify(draft=f"I couldn't find order {order_id}. Please check the ID.")
 
-    return jsonify(draft=generate_draft(order))
+    return jsonify(draft=generate_reply(order))
 
 
 if __name__ == '__main__':
