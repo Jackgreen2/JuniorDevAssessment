@@ -1,3 +1,27 @@
+## Initial Planning Notes
+
+Using python because of familiarity with restAPI and Jsonify which will cover message 
+handling between client and server and JSON parsing. Using python will also improve 
+readability of the codebase for reviewing
+
+Structure:
+Client-Server Architecture
+
+Message Handling:
+- Client sends request to server
+- Server extracts order number from the message, checks whether it exists, applies the cancellation policy. 
+- Server then requests LLM to craft a message back to the user giving feedback on the result of their request.
+
+# Limitations
+
+This system does not perform any actual cancellations and only provides the user with informaion about whether their order can be
+cancelled. 
+This system also makes no attempt to verify who the user is and therefore a malicious user could gain access to information about
+other customers orders.
+The user message is also never given to the LLM just the policy decision which is determined by code on the server. 
+This means that the messages cannot be personalised and limits the scope of what the LLM can do in this system, but this also makes the system more resilient to prompt injection attacks.
+This approach would also struggle to scale to larger amounts of queries as this approach is limited to one machine running the server.
+
 # Junior Developer Assessment
 
 A small Python CLI assistant that drafts order cancellation replies. The client
@@ -12,14 +36,8 @@ Requires Python 3.10+, the Doppler CLI, and an Anthropic API key.
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-doppler login
-doppler setup
+export DOPPLER_TOKEN="dp.st.prd.xxxx"
 ```
-
-On Windows, activate with `.venv\Scripts\Activate.ps1` instead.
-Select your Doppler project/config and add `ANTHROPIC_API_KEY` in its dashboard.
-Optionally set `ANTHROPIC_MODEL` (default: `claude-haiku-4-5`).
-The key stays in the server environment; never commit credentials.
 
 Start the local server:
 
@@ -54,16 +72,4 @@ Tests mock Anthropic, so no API key or paid calls are needed.
 Manual tests used to check LLM is correctly drafting replies.
 
 
-## Initial Planning Notes
 
-Using python because of familiarity with restAPI and Jsonify which will cover message 
-handling between client and server and JSON parsing. Using python will also improve 
-readability of the codebase for reviewing
-
-Structure:
-Client-Server Architecture
-
-Message Handling:
-- Client sends request to server
-- Server extracts order number from the message, checks whether it exists, applies the cancellation policy. 
-- Server then requests LLM to craft a message back to the user giving feedback on the result of their request.
